@@ -1,7 +1,7 @@
-import OpenAI from "openai";
-import dotenv from 'dotenv';
-import express from 'express';
-import cors from 'cors';
+const OpenAI = require("openai");
+const dotenv = require('dotenv');
+const express = require('express');
+const cors = require('cors');
 
 dotenv.config();
 
@@ -15,37 +15,35 @@ const openai = new OpenAI({
 app.use(cors());
 app.use(express.json()); 
 
-async function getQuestions(top, exp, num, sty) {
-  let topic = top;
-  let expertise = exp;
-  let numQuestions = num;
-  let style = sty;
-  let prompt =
-    `Generate ${numQuestions} questions on a ${expertise} level regarding ${topic}. Questions should be simple. Do not answer the questions.
-    Please word the questions as if you were ${style}, make sure to integrate this in each question but keep the questions based on ${topic}.
-    Each question must be based on ${topic}.
-    Format the response as an array with each question being a string value in the array.
-    Please do not number the questions.`;
-  const completion = await openai.chat.completions.create({
-    messages: [{ role: "user", content: prompt }],
-    model: "gpt-3.5-turbo",
-  });
-  try {
-    console.log(completion.choices[0].message.content)
-    return JSON.parse(`{"Questions": ${completion.choices[0].message.content}}`);
-  } catch (error) {
-    console.log({
-      error: "Invalid response from GPT. Please try again."
+async function getQuestions(topic, expertise, numQuestions, style) {
+  let questions = [];
+  let remainingQuestions = numQuestions;
+  while (remainingQuestions > 0) {
+    let prompt =
+      `Generate ${remainingQuestions} questions on a ${expertise} level regarding ${topic}. Questions should be simple. Do not answer the questions.
+      Please word the questions as if you were ${style}, make sure to integrate this in each question but keep the questions based on ${topic}.
+      Each question must be based on ${topic}.
+      Format the response as an array with each question being a string value in the array.
+      Please do not number the questions.`;
+    const completion = await openai.chat.completions.create({
+      messages: [{ role: "user", content: prompt }],
+      model: "gpt-3.5-turbo",
     });
-    return {
-      error: "Invalid response from GPT. Please try again."
+    try {
+      const parsedResponse = JSON.parse(completion.choices[0].message.content);
+      questions = questions.concat(parsedResponse);
+      remainingQuestions -= parsedResponse.length;
+    } catch (error) {
+      console.log({
+        error: "Invalid response from GPT. Please try again."
+      });
+      return [];
     }
   }
+  return questions.slice(0, numQuestions);
 }
 
-async function getEvaluation(ques, sub) {
-  let question = ques;
-  let submission = sub;
+async function getEvaluation(question, submission) {
   let prompt = `Your sole purpose is to evaluate quiz answers. 
   You are a teacher and you are evaluating a student's answer to a question. 
   The question is: '${question}'. The student's answer is: '${submission}'.
@@ -86,23 +84,19 @@ app.get('/', (_req, res) => {
 });
 
 app.get('/questions', async (req, res) => {
-  const topic = req.query.topic;
-  const expertise = req.query.expertise;
-  const numQuestions = req.query.numQuestions;
-  const style = req.query.style;
+  const { topic, expertise, numQuestions, style } = req.query;
   const questions = await getQuestions(topic, expertise, numQuestions, style);
-  res.json(questions);
+  res.json({ Questions: questions });
 });
 
 app.post('/questions', async (req, res) => {
   const questions = req.body; 
   console.log('Received questions for storage or further processing:', questions);
-  res.status(201).send({ message: 'Questions submitted successfully' });
+  res.status(201).json({ message: 'Questions submitted successfully' });
 });
 
 app.get('/evaluation', async (req, res) => {
-  const question = req.query.question;
-  const submission = req.query.submission;
+  const { question, submission } = req.query;
   const evaluation = await getEvaluation(question, submission);
   res.json(evaluation);
 });
@@ -110,3 +104,5 @@ app.get('/evaluation', async (req, res) => {
 app.listen(port, () => {
   console.log(`Server is running on port: ${port}`);
 });
+
+module.exports = app;
